@@ -1,0 +1,14 @@
+.git
+.gitignore
+.venv
+__pycache__
+*.pyc
+ray_results/
+mock_data/
+*.pt
+*.onnx
+*.log
+.idea
+.vscode
+docker-compose.yml
+setup_venv.ps1

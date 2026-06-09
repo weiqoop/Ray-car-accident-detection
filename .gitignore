@@ -1,0 +1,29 @@
+# 資料與大檔（不進版控）
+datasets/
+team edit/
+ray_results/
+*.pt
+*.zip
+*.mp4
+*.avi
+
+# 大型資料集（掛載/下載，不進版控）
+# 錨定根目錄：避免在大小寫不敏感的 Windows 上誤擋 src/data/accident/
+/ACCIDENT/
+/UCF-Crime/
+
+# 模型備份與 robocopy 殘留
+_model_backup_*/
+*robocopy_count.txt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+/_archive/

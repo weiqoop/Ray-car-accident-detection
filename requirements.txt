@@ -1,0 +1,24 @@
+# Host venv (Python 3.10) — everything for local dev + training.
+# torch wheels are pulled from PyTorch's cu121 index for RTX 3060 Ti.
+--extra-index-url https://download.pytorch.org/whl/cu121
+
+torch==2.5.1+cu121
+torchvision==0.20.1+cu121
+
+ray[default,train,data,serve]==2.40.0
+# Ray 2.40 CLI (`ray start --head`) deepcopies click Command objects, which
+# breaks with click >= 8.2 ("is not a valid Sentinel"). Pin below that.
+click<8.2
+ultralytics==8.3.40
+opencv-python==4.10.0.84
+python-multipart>=0.0.9    # FastAPI UploadFile for /detect endpoints
+requests>=2.31             # cctv_demo / batch_demo / test_models HTTP clients
+numpy==1.26.4
+Pillow>=10.3.0,<11
+PyYAML>=6.0
+
+# Phase 3 + 5: post-processing & dashboard (ultralytics installs the first
+# two transitively, listing explicitly so it's clear they're load-bearing).
+pandas>=2.2
+matplotlib>=3.8
+streamlit>=1.34            # scripts/dashboard.py

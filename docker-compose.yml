@@ -1,0 +1,134 @@
+# Clean Ray framework template. Two compose modes:
+#
+#   A) Batch run (container exits when the script finishes):
+#        docker compose run --rm --service-ports train python scripts/your_script.py
+#
+#   B) Persistent Ray head (recommended — submit jobs into it):
+#        docker compose up -d ray-head
+#        docker compose exec ray-head python scripts/your_script.py
+#        docker compose down
+#
+# Add your own bind mounts under `volumes:` (datasets, output dirs, etc).
+
+x-gpu: &gpu-reservation
+  reservations:
+    devices:
+      - driver: nvidia
+        count: 1
+        capabilities: [gpu]
+
+x-thread-caps: &thread-caps
+  # Cap BLAS thread counts so multiple Ray workers don't oversubscribe CPUs.
+  OMP_NUM_THREADS: "1"
+  OPENBLAS_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
+  VECLIB_MAXIMUM_THREADS: "1"
+  NUMEXPR_NUM_THREADS: "1"
+  # scripts/ entries do `from src.X import Y` -- without /workspace on
+  # PYTHONPATH, `python scripts/foo.py` only sees /workspace/scripts on
+  # sys.path and the src package isn't found.
+  PYTHONPATH: "/workspace"
+
+# Whole directories are bind-mounted so adding new files under src/ or
+# scripts/ doesn't require touching this file. Add dataset binds here, e.g.:
+#   - D:/my_dataset:/data/foo:ro
+x-bind-mounts: &bind-mounts
+  - ./src:/workspace/src:ro
+  - ./scripts:/workspace/scripts:ro
+  - ./ray_results:/workspace/ray_results
+  - F:/dataset:/data/detrac:ro          # UA-DETRAC 原始資料（唯讀）
+  - F:/DoTA:/data/dota:ro               # DoTA 車禍資料集（唯讀）
+  - ./datasets:/workspace/datasets       # 轉檔後的 YOLO 格式資料（可寫）
+
+services:
+  # ----- Mode A: batch (override `command` on the CLI) ---------------------
+  train:
+    build: .
+    image: ray-framework:latest
+    container_name: ray-train
+    shm_size: "8g"
+    deploy:
+      resources: *gpu-reservation
+    environment: *thread-caps
+    volumes: *bind-mounts
+    ports:
+      - "8265:8265"     # Ray dashboard
+    # No default command -- supply one when running:
+    #   docker compose run --rm train python scripts/your_train.py
+    command: ["python", "-c", "print('override --command on the CLI; this is just the build target')"]
+
+  # ----- Mode B: long-lived Ray head ---------------------------------------
+  ray-head:
+    build: .
+    image: ray-framework:latest
+    container_name: ray-head
+    shm_size: "8g"
+    deploy:
+      resources: *gpu-reservation
+    environment:
+      <<: *thread-caps
+      # Tell init_ray() to attach to the local cluster instead of starting
+      # a fresh one when scripts are exec'd into here.
+      RAY_ADDRESS: "auto"
+      TZ: "Asia/Taipei"
+    volumes: *bind-mounts
+    ports:
+      - "8265:8265"     # Ray dashboard
+      - "10001:10001"   # Ray client port (optional)
+      - "6379:6379"     # Ray GCS (multi-node only)
+      - "8000:8000"     # Ray Serve HTTP endpoint
+      - "6006:6006"     # TensorBoard
+      - "8501:8501"     # spare (Streamlit / HTTP server)
+    healthcheck:
+      # workers 等 head 的 GCS 就緒後才加入，避免連線失敗
+      test: ["CMD", "bash", "-c", "ray status"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 8s
+    command: >
+      ray start --head
+      --port=6379
+      --dashboard-host=0.0.0.0
+      --ray-client-server-port=10001
+      --num-cpus=8
+      --num-gpus=1
+      --object-store-memory=6442450944
+      --memory=12884901888
+      --block
+
+  # ----- Mode B: Ray worker nodes（同機多節點，湊足 ≥3 節點）----------------
+  # 只認 head:6379 加入同一叢集；CPU-only（單顆實體 GPU 由 head 獨佔）。
+  ray-worker-1:
+    image: ray-framework:latest
+    container_name: ray-worker-1
+    shm_size: "4g"
+    depends_on:
+      ray-head:
+        condition: service_healthy
+    environment: *thread-caps
+    volumes: *bind-mounts
+    command: >
+      ray start --address=ray-head:6379
+      --num-cpus=4
+      --num-gpus=0
+      --object-store-memory=2147483648
+      --memory=4294967296
+      --block
+
+  ray-worker-2:
+    image: ray-framework:latest
+    container_name: ray-worker-2
+    shm_size: "4g"
+    depends_on:
+      ray-head:
+        condition: service_healthy
+    environment: *thread-caps
+    volumes: *bind-mounts
+    command: >
+      ray start --address=ray-head:6379
+      --num-cpus=4
+      --num-gpus=0
+      --object-store-memory=2147483648
+      --memory=4294967296
+      --block
